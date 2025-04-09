@@ -1,0 +1,290 @@
+/*------------------------------------------------------*/
+/*                                                      */
+/*            程序main函数，入口函数源文件               */
+/*                                                      */
+/*------------------------------------------------------*/
+
+#include "sys.h"
+#include "delay.h"
+#include "usart1.h"
+#include "usart2.h"
+#include "usart3.h"
+#include "stdio.h"
+#include "FreeRTOS.h"	 //FreeRTOS配置头文件
+#include "queue.h"		 //队列
+#include "event_groups.h"//事件标志组
+#include "Thermostat.h"
+#include "switch.h"	     //包含需要的头文件 LED
+#include "runcode.h"
+#include "door.h"
+#include "led.h"
+#include "power.h"
+#include "stdlib.h"
+#include "instruct.h"
+
+/*-------------------------------------------------------------*/
+/*               freertos任务通信控制（固定）			      	   */
+/*-------------------------------------------------------------*/
+
+QueueHandle_t U1_xQueue,U2_xQueue,U3_xQueue;
+
+
+//全局变量
+u8 door_flag=0;
+
+
+/*-------------------------------------------------------------*/
+/*               任务句柄及任务函数声明1（配置）		      	   */
+/*-------------------------------------------------------------*/
+
+//开始任务
+TaskHandle_t StartTask_Handler;
+void my_start_task(void *pvParameters);
+
+//Showhmi任务，串口屏
+TaskHandle_t Showhmi_Task_Handler;
+void my_showhmi_task(void *pvParameters);
+
+
+//GetCT任务，串口屏
+TaskHandle_t GetCT_Task_Handler;
+void my_getCT_task(void *pvParameters);
+
+
+//LED任务，串口屏
+TaskHandle_t LED_Task_Handler;
+void my_LED_task(void *pvParameters);
+
+//解析串口屏指令任务
+TaskHandle_t Instruct_Task_Handler;
+void my_instruct_task(void *pvParameters);
+
+
+//运行炉门动作任务
+TaskHandle_t Door_Task_Handler;
+void my_door_task(void *pvParameters);
+
+//堆栈检测任务
+TaskHandle_t Stack_Task_Handler;
+void stack_task(void *pvParameters);
+
+/*---------------------------------------------------------------*/
+/*函数名：int main()                                             */
+/*功  能：主函数							                         */
+/*		  1.初始化各功能模块  				     				 */
+/*		  2.创建开始任务（在开始任务里创建所有其他任务）           */
+/*		  3.开启任务调度				       			 		     */
+/*参  数：无                          			   				 */
+/*返回值：无                                       			     */
+/*---------------------------------------------------------------*/
+int main()
+{
+  NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);		//设置系统中断优先级分组4
+  delay_init();	      							 	//延时函数初始化
+  usart1_init(115200);  								 //串口1功能初始化，波特率115200，与串口助手/串口屏通信
+  usart2_init(115200);      						//串口2功能初始化，波特率115200，与开关电源通信
+  //usart3_init(9600);   								//串口3功能初始化，波特率9600，与温控器通信
+	usart3dma_init();                     //串口3dma功能初始化，波特率9600，与温控器通信
+	
+	
+// usart4_init(115200);  								 //串口4功能初始化，波特率115200，wifi通信
+// tim4_init(500,7200);   								//TIM4初始化，定时时间 500*7200*1000/72000000 = 50ms
+  led_init();
+
+  Switch_Init();    									//初始化外部控制
+
+  BUZZER=1;
+  delay_ms(50);
+  BUZZER=0;
+  delay_ms(50);
+  BUZZER=1;
+  delay_ms(50);
+  BUZZER=0;
+
+  //创建开始任务
+  xTaskCreate((TaskFunction_t	) my_start_task,		//任务函数
+              (const char* 	)"my_start_task",		//任务名称
+              (uint16_t 		) 128,				  	//任务堆栈大小
+              (void* 		  	) NULL,				 	//传递给任务函数的参数
+              (UBaseType_t 	) 1, 				  	//任务优先级
+              (TaskHandle_t*  ) &StartTask_Handler);	//任务控制块
+
+  vTaskStartScheduler();  							//开启任务调度
+}
+
+/*---------------------------------------------------------------*/
+/*函数名：void my_start_task(void *pvParameters)                 */
+/*功  能：开始任务（配置）							             */
+/*		  1.创建信号量，消息队列等任务通信方式   				     */
+/*		  2.创建所有任务       			 						 */
+/*		  3.删除本身       			 		    				 */
+/*参  数：无                          			   				 */
+/*返回值：无                                       			     */
+/*---------------------------------------------------------------*/
+void my_start_task(void *pvParameters)
+{
+  //taskENTER_CRITICAL(); //进入临界区
+
+  //创建队列：led
+  LED_xQueue = xQueueCreate(1, 1 );
+
+  //创建队列：从串口1中断读取指令数据
+  U1_xQueue = xQueueCreate(1, 70 );
+
+  //创建队列：从串口2中断读取指令数据
+  U2_xQueue = xQueueCreate(1, 30 );
+
+  //创建队列：从串口3中断读取返回数据
+  U3_xQueue = xQueueCreate(1, 30 );
+
+  //创建队列：发送程序参数给runcode任务
+  runcode_xQueue = xQueueCreate(1, 80 );
+
+
+  //创建每秒发送系统状态任务 ，给串口屏
+  xTaskCreate(my_showhmi_task, 			"my_showhmi_task", 			128, NULL, 1, &Showhmi_Task_Handler);
+
+
+  //创建每秒发送环境温度、湿度任务 ，给串口屏
+  xTaskCreate(my_getCT_task, 			"my_getCT_task", 			128, NULL, 1, &GetCT_Task_Handler);
+
+  //创建LED任务
+  xTaskCreate(my_LED_task, 			"my_LED_task", 			128, NULL, 1, &LED_Task_Handler);
+
+  //创建解析指令任务
+  xTaskCreate(my_instruct_task, 			"my_instruct_task", 		128, NULL, 3, &Instruct_Task_Handler);
+
+  //创建炉门动作任务
+  xTaskCreate(my_door_task, 			"my_door_task", 			128, NULL, 1, &Door_Task_Handler);
+
+  //创建检测任务
+  //xTaskCreate(stack_task,    			    "my_stack_task",         128, NULL, 1, &Stack_Task_Handler);
+
+  vTaskDelete(StartTask_Handler); //删除开始任务
+//	taskEXIT_CRITICAL();            //退出临界区
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*函数名：void my_showhmi_task(void *pvParameters)   		    */
+/*功  能：串口屏显示系统状态任务       							 */
+/*参  数：无                          			   				 */
+/*返回值：无                                       			     */
+/*其  他：                                                       */
+/*---------------------------------------------------------------*/
+void my_showhmi_task(void *pvParameters)
+{
+  u8 LED;
+
+
+//  delay_ms(1000);
+//  printf("xinxi.version.txt=\"v1.0\"\xff\xff\xff");
+//  printf("xinxi.version.txt=\"v1.0\"\xff\xff\xff");
+//  //温控器初始化
+//  delay_ms(3000);
+//  Thermostat_init();
+//  //开关电源初始化
+//  delay_ms(600);
+//  power_init();
+
+  LED=1;					//YELLOW_LED = 1;RED_LED= 2;GREEN_LED= 3;
+  xQueueSendToBack( LED_xQueue,&LED,0);	//写队列
+
+
+  while(1)
+    {
+
+//      delay_ms(500);
+//      Send_Thermostat('r',0x4a,0);              	//4a-PV：测量温度
+//      delay_ms(500);
+//      Send_power('r',0x07,0x0005); 								//读电源状态
+//      //tem-re<300 turnoff_fan1
+//      if(PVTem-TEMchange+reTEMchange<=300)
+//        {
+//          FAN_UP=1;
+
+//        }
+			
+			
+			       if( get_usart3_TC_flag() )
+        {
+            usart3_printf("此次接收了%d个数据。\n发送的数据为：%s\n", get_ch340_rx_len(), (char*)get_ch340_rx_package());//串口回传
+
+          
+        }
+
+    }
+}
+
+
+
+/*---------------------------------------------------------------*/
+/*函数名：void stack_task(void *pvParameters)                    */
+/*功  能：任务堆栈大小测试（固定）							     */
+/*		  1.查看任务运行时堆栈大小，用于调试          			 */
+/*参  数：无                          			   				 */
+/*返回值：无                                       			     */
+/*---------------------------------------------------------------*/
+//void stack_task(void *pvParameters)
+//{
+//	TaskHandle_t TaskHandle;
+//	TaskStatus_t TaskStatus;
+//	int i = 0;
+//	while(1)
+//	{
+////		xEventGroupWaitBits((EventGroupHandle_t	)Event_Handle,
+////							(EventBits_t		)WIFI_CONECT|PING_MODE,
+////							(BaseType_t			)pdFALSE,
+////							(BaseType_t			)pdTRUE,
+////							(TickType_t			)portMAX_DELAY);
+////		LED_On();
+////		delay_ms(500);			//延时0.5s
+////		LED_Off();
+////		delay_ms(500);			//延时0.5s
+//
+//		for(i = 0; i < 5; i++)
+//		{
+//			if (i == 0)
+//			{
+//				TaskHandle = Instruct_Task_Handler;			//根据任务名获取任务句柄。
+//			}
+//			else if (i == 1)
+//			{
+//				TaskHandle = Runcode_Task_Handler;		//根据任务名获取任务句柄。
+//			}
+//			else if (i == 2)
+//			{
+//				TaskHandle = MQTT_RxTx_Task_Handler;	//根据任务名获取任务句柄。
+//			}
+//			else if (i == 3)
+//			{
+//				TaskHandle = AHT20_Task_Handler;		//根据任务名获取任务句柄。
+//			}
+//			else if (i == 4)
+//			{
+//				TaskHandle = DATA_TX_Task_Handler;		//根据任务名获取任务句柄。
+//			}
+//
+//			//获取任务信息
+//			vTaskGetInfo((TaskHandle_t	)TaskHandle, 	//任务句柄
+//						 (TaskStatus_t*	)&TaskStatus, 	//任务信息结构体
+//						 (BaseType_t	)pdTRUE,		//允许统计任务堆栈历史最小剩余大小
+//						 (eTaskState	)eInvalid);		//函数自己获取任务运行壮态
+//			//通过串口打印出指定任务的有关信息。
+//			printf("任务名:                %s\r\n",TaskStatus.pcTaskName);
+//			printf("任务编号:              %d\r\n",(int)TaskStatus.xTaskNumber);
+//			printf("任务壮态:              %d\r\n",TaskStatus.eCurrentState);
+//			printf("任务当前优先级:        %d\r\n",(int)TaskStatus.uxCurrentPriority);
+//			printf("任务基优先级:          %d\r\n",(int)TaskStatus.uxBasePriority);
+//			printf("任务堆栈基地址:        %#x\r\n",(int)TaskStatus.pxStackBase);
+//			printf("任务堆栈历史剩余最小值:%d\r\n",TaskStatus.usStackHighWaterMark);
+//		}
+//		delay_ms(10 * 1000);	    //延时10s
+
+//	}
+//}
+
+
+//202405281937
+

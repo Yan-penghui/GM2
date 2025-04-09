@@ -1,0 +1,300 @@
+
+/*-------------------------------------------------*/
+/*                                                 */
+/*   		     宇电485温控器                      */
+/*                                                 */
+/*-------------------------------------------------*/
+
+// 硬件连接：
+// usart3转485
+
+#include "stm32f10x.h"
+#include "Thermostat.h"
+#include "delay.h"
+#include "usart3.h"
+#include "usart2.h"
+#include "uart4.h"
+#include "switch.h"
+#include "stdio.h"
+#include "string.h"
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "task.h"
+#include "power.h"
+#include "door.h"
+
+TickType_t xStartTime, xEndTime;
+
+
+extern QueueHandle_t U3_xQueue,U2_xQueue;
+
+int PVTem = 0,SVTem = 0,RunTime = 0,Pno=0, Step = 0, Value=0;
+volatile int Srun = 0;
+
+int C,V,error_3_times=0;
+volatile int Output=0;
+/*-----------------------------------------------------------*/
+/*	函数名：Thermostat_init初始化 温控器                 	   */
+/*	参  数：																							 	 */
+/*	通讯模式				AFC: 0 - 标准modbus											 */
+/*	输入						lnp：6 - B热电偶                   			*/
+/*	升温速率限制		SPr：50 - 度/分钟                        */
+/*	状态控制				Srun: 0-运行 ，1-停止 ，2-保持hold			 */
+/*-----------------------------------------------------------*/
+void Thermostat_init(void)
+{
+  Send_Thermostat('w',0x0b,6);			//lnp寄存器地址0x0b
+  Send_Thermostat('w',0x2b,0);			//lnp寄存器地址0x0b
+  Send_Thermostat('w',0x2a,0*10); 		//SPr寄存器地址0x2a
+  //Send_Thermostat('w',0x50,50*10); 		//SP1寄存器地址0x50
+  Send_Thermostat('w',0x1b,1);			//1b-Srun： 0-run 1-stop 2-hold
+
+  if(Send_Thermostat('w',0x1b,1)==0) 		//读状态失败
+    // 严重故障：
+    //error8:温控器通信线未连接
+    {
+      uart4_printf("温控器通信异常！\r\n");
+      errormessage(8);
+    }
+  else
+    {
+      uart4_printf("温控器参数初始化成功\r\n");
+    }
+
+}
+
+
+/*-------------------------------------------------*/
+/*函数名：串口发送字节                          	   */
+/*参  数：Byte：数据                                */
+/*参  数：usart：串口号						       */
+/*返回值：						                   */
+/*-------------------------------------------------*/
+
+//发送数据
+void Serial_SendByte(u8 Byte,int usart)
+{
+  //发送数据的函数
+  if(usart==1)
+    {
+      USART_SendData(USART1,Byte);
+    }
+  else if(usart==2)
+    {
+      USART_SendData(USART2,Byte);
+    }
+  else if(usart==3)
+    {
+      USART_SendData(USART3,Byte);
+    }
+
+
+  //检查某个寄存器的中断标志位
+  while (USART_GetFlagStatus(USART2,USART_FLAG_TXE)==RESET);
+
+  while (USART_GetFlagStatus(USART3,USART_FLAG_TXE)==RESET);
+
+  /*
+  在完成数据发送的时候,TXE置1;
+  下次发送数据自动置0,所以不用手动清除中断标志位.
+
+  TXE:发送数据寄存器:
+  当TDR寄存器中的数据被硬件转移到移位寄存器的时候，该位被硬件置位。
+  如果USART_CR1寄存器中的TXEIE为1，则产生中断。对USART DR的写操作，将该位清零。
+  0:数据还没有被转移到移位寄存器
+  1:数据已经被转移到移位寄存器。
+  注意:单缓冲器传输中使用该位。
+  */
+}
+
+/*-------------------------------------------------*/
+/*函数名：串口发送多个字节                          */
+/*参  数：Array：数据组                             */
+/*参  数：Length：字节数                            */
+/*参  数：usart：串口号						       */
+/*返回值：						                   */
+/*-------------------------------------------------*/
+
+void Serial_SendArray(u8 *Array, int Length,int usart)
+{
+
+  int i;
+  //delay_us(800);
+  for(i=0; i<Length; i++)
+    {
+      Serial_SendByte(Array[i],usart);
+      //delay_us(500);               //波特率，设定发送时间间隔
+    }
+}
+
+
+
+/*-------------------------------------------------*/
+/*函数名：温控器发送设置指令                         */
+/*参  数：operate：W/R  写/读                       */
+/*参  数：name：寄存器地址        					 */
+/*参  数：w_data：写入数据值       					  */
+/*返回值：0：正确   其他：错误                     */
+/*-------------------------------------------------*/
+int Send_Thermostat(char operate,u8 name,u16 w_data)
+{
+
+//	 char format_string[50];
+  u8 send_data[8];
+  u8 re_data[10];
+  u16 sendCRC=0;
+  int send_times=5;		//超时计数
+
+  send_data[0] = 0x81;               		  	//仪表地址80+1
+  send_data[1] = 0x81;
+  if(operate=='w')
+    {
+      send_data[2] = 0x43;            		 	//写指令43
+      send_data[4] = w_data;               		//写入数据(高位）
+      send_data[5] = w_data>>8;               	//写入数据(低位）
+    }
+  if(operate=='r')
+    {
+      send_data[2] = 0x52;					//读指令52
+      send_data[4] = 0x00;					//读数据长度（高位都是0x00）
+      send_data[5] = 0x00;					//读数据长度（统一长读为1）
+    }
+
+  send_data[3] = name;
+
+  //校验和
+  if(operate=='r')
+    {
+      sendCRC = name*256+82+1;
+    }
+  if(operate=='w')
+    {
+      sendCRC = name*256+67+w_data +1;
+    }
+  send_data[7] = sendCRC>>8;					//高8位
+  send_data[6] = sendCRC;						//低8位
+
+  //发送指令数据，发送失败重试次数：5
+  while(send_times)
+    {
+      //温控器使能发送1使能接收0
+      RS485=1;
+      //清空usart3接收缓冲区
+      memset(usart3_rx_package, 0, usart3_rx_len_MAX);
+      //发送指令数据Serial_SendArray(data, 字计数量,串口)
+      Serial_SendArray(send_data, 9,3);
+
+      xStartTime = xTaskGetTickCount();
+      //温控器使能发送1使能接收0
+      RS485=0;
+
+      //100ms内接收到正确返回值
+      if (pdPASS == xQueueReceive( U3_xQueue,&re_data,100 ))
+        {
+          u16 modbusCRC,myCRC;
+
+          // 获取当前节拍计数
+          xEndTime = xTaskGetTickCount();
+          // uart4_printf("温控器数据接收time=%d\r\n",xEndTime-xStartTime);
+
+//		printf("U3_xQueue=");
+//			for(i=0;i<10;i++)
+//			{
+//			printf("%02x ",re_data[i]);
+//		}
+//			 printf("\r\n");
+
+          //计算接收数据的校验和
+          modbusCRC =	((Thermostat_RX_BUF[0] + Thermostat_RX_BUF[1]*256
+                        +	Thermostat_RX_BUF[2] + Thermostat_RX_BUF[3]*256
+                        +	Thermostat_RX_BUF[4] + Thermostat_RX_BUF[5]*256
+                        +	Thermostat_RX_BUF[6] + Thermostat_RX_BUF[7]*256)+1)&0xffff;
+
+
+          //实际接收到的校验和
+          myCRC     = Thermostat_RX_BUF[8]+Thermostat_RX_BUF[9]*256;
+          if( myCRC == modbusCRC)              						//如果CRC校验通过
+            {
+
+              PVTem	=	(Thermostat_RX_BUF[0] + Thermostat_RX_BUF[1]*256)/10;
+              SVTem	=	(Thermostat_RX_BUF[2] + Thermostat_RX_BUF[3]*256)/10;
+              Output	=	Thermostat_RX_BUF[4];
+              Srun	=	Thermostat_RX_BUF[5];
+              Value	=	Thermostat_RX_BUF[6] + Thermostat_RX_BUF[7]*256;
+
+              printf("opt.val=%d\xff\xff\xff",Output);
+              printf("wendu.val=%d\xff\xff\xff",PVTem-TEMchange+reTEMchange);
+
+              //error1:温控器热电偶未连接
+              if(PVTem>=1750)
+                {
+                  uart4_printf("error1:温控器热电偶未连接\n\r");
+                  errormessage(1);
+                }
+
+              //error2:热电偶反接
+              if(PVTem<50)
+                {
+                  uart4_printf("error2:热电偶反接\n\r");
+                  errormessage(2);
+                }
+
+              //error3:加热丝断或4-20ma控制线断
+              //电源输出继电器吸合、输入电压>100V、温控器输出100，输出电流<1A
+              if( POWER==0  && v_opt>23.0 && Output==100 && i_opt <1.0)
+                {
+                  error_3_times=error_3_times+1;
+                  uart4_printf("error3:加热丝断或4-20ma控制线断\n\r");
+                  uart4_printf("POWER=%d  && v_opt=%.2f && Output=%d && i_opt =%.2f\n\r",
+                               POWER,			v_opt, 				Output, 			 i_opt);
+                }
+              if( i_opt >1.0)
+                {
+                  error_3_times=0;
+                }
+
+              if(error_3_times>10)
+                {
+                  error_3_times=0;
+                  errormessage(3);
+                }
+              //tem-re<500 turnoff_fan
+              if(PVTem-TEMchange+reTEMchange<=500)
+                {
+                  FAN_DOWN =1;
+                  FAN_UP=1;
+                }
+              else
+                {
+                  FAN_DOWN =0;//  风扇启停
+                  FAN_UP=0;
+                }
+
+              //if(i<5){printf("第%d次重试------成功******\r\n",5-i);}
+              delay_ms(100);
+              return 1;
+
+            }
+          else
+            {
+              uart4_printf("温控器:CRC校验失败,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
+            }
+
+        }
+      else
+        {
+          uart4_printf("温控器第%d次接收数据超时！\r\n",6-send_times);
+        }
+
+      send_times=send_times-1;
+
+    }
+
+  // i<0 严重故障：温控器连接异常
+  //error8:温控器通信线未连接
+  uart4_printf("严重故障：温控器连接异常！\r\n");
+  // errormessage(8);
+
+  return 0;
+}
+

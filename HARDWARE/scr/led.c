@@ -1,0 +1,92 @@
+
+/*-------------------------------------------------*/
+/*         	                                       */
+/*           		 LED控制           	 		   */
+/*                                                 */
+/*-------------------------------------------------*/
+
+// 硬件连接：
+// PB4 YELLOW_LED
+// PB5 RED_LED
+// PB8 GREEN_LED
+
+#include "stm32f10x.h"  //包含需要的头文件
+#include "led.h"        //包含需要的头文件
+#include "delay.h"
+
+QueueHandle_t LED_xQueue;
+
+/*-------------------------------------------------*/
+/*函数名：初始化LED函数                     */
+/*参  数：无                                       */
+/*返回值：无                                       */
+/*-------------------------------------------------*/
+void led_init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStructure;
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+
+  //3led  高电平有效 初始化YELLOW_LED为高电平
+  RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO,ENABLE);
+
+  GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
+
+  GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_4;    //PB4 YELLOW_LED
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+  GPIO_ResetBits(GPIOB,GPIO_Pin_4);
+
+  GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_5;    //PB5 RED_LED
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+  GPIO_ResetBits(GPIOB,GPIO_Pin_5);
+
+  GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_8;    //PB8 GREEN_LED
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_Init(GPIOB, &GPIO_InitStructure);
+  GPIO_ResetBits(GPIOB,GPIO_Pin_8);
+}
+
+/*-------------------------------------------------*/
+/*函数名：LED1开启                                  */
+/*参  数：无                                       */
+/*返回值：无                                       */
+/*-------------------------------------------------*/
+void my_LED_task(void *pvParameters)
+{
+  u8 LED;
+  while(1)
+    {
+      if (pdPASS == xQueueReceive( LED_xQueue,&LED,portMAX_DELAY ))    	//读队列
+        {
+          if(LED==1)
+            {
+
+              YELLOW_LED = 1;
+              RED_LED    = 0;
+              GREEN_LED  = 0;
+
+            }
+          if(LED==3)
+            {
+
+              YELLOW_LED = 0;
+              RED_LED    = 1;
+              GREEN_LED  = 0;
+
+            }
+          if(LED==2)
+            {
+
+              YELLOW_LED = 0;
+              RED_LED    = 0;
+              GREEN_LED  = 1;
+
+            }
+        }
+      delay_ms(1000);
+    }
+}
