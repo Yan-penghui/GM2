@@ -6,15 +6,10 @@
 #define power_RX_BUF       		usart2_rx_package       //´®¿Ú2¿ØÖÆ ÎÂ¿ØÆ÷
 #define power_RXBUFF_SIZE  		usart2_rx_len_MAX  //´®¿Ú2¿ØÖÆ ÎÂ¿ØÆ÷
 
-
-
-
-
-extern float v_opt ,i_opt ,v_ipt ;
-
+extern float v_opt ,i_opt ,p_opt ;
 
 void power_init(void)	;	
-int Send_power(char operate,u8 name,u16 w_data);
+int Send_power(char operate,u16 name,u16 w_data);
 extern void errormessage(int error);
 
 
