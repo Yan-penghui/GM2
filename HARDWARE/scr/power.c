@@ -1,7 +1,7 @@
 
 /*-------------------------------------------------*/
 /*                                                 */
-/*   		    modbus   µ÷Ñ¹Æ÷                      */
+/*   		    modbus   è°ƒå‹å™¨                      */
 /*                                                 */
 /*-------------------------------------------------*/
 
@@ -24,13 +24,13 @@ TickType_t xStartTime_power, xEndTime_power;
 extern QueueHandle_t U2_xQueue;
 
 
-float v_opt = 0,i_opt = 0,v_ipt = 0;
-int	power_state = 0;
+float v_opt = 0,i_opt = 0,p_opt = 0;
+int	power_state = 0,power_error = 0;
 
 
 /*-----------------------------------------------------------*/
-/*	º¯ÊıÃû£ºpower_init³õÊ¼»¯ ¿ª¹ØµçÔ´         	             */
-/*	²Î  Êı£º																									*/
+/*	å‡½æ•°åï¼špower_initåˆå§‹åŒ– å¼€å…³ç”µæº         	             */
+/*	å‚  æ•°ï¼š																									*/
 /*	R:	0x007 v_opt                                          */
 /*			0x008 i_opt                                          */
 /*			0x00a v_ipt                                          */
@@ -38,36 +38,38 @@ int	power_state = 0;
 /*-----------------------------------------------------------*/
 void power_init(void)
 {
-
-  Send_power('w',0x06,0x0000);		//¿ª¹Ø»ú¼Ä´æÆ÷µØÖ·0x0006         0¿ª»ú-1¹Ø»ú
-  Send_power('w',0x03,0x0001); 		//Ñ¡ÓÃÄ£Ê½¼Ä´æÆ÷µØÖ·0x0003       0µçÎ»Æ÷µ÷½Ú£¬1modbusµ÷½Ú
-  //Send_power('w',0x00,0x11c1); 		//ÉèÖÃÊä³öµçÑ¹¼Ä´æÆ÷µØÖ·0x0000   0x11c1£º24V
-  //Send_power('w',0x01,0x11c1); 		//ÉèÖÃÊä³öµçÁ÷¼Ä´æÆ÷µØÖ·0x0001   0x0000£º0A
-  Send_power('w',0x04,0x17ed); 		//ÉèÖÃ¹ıÑ¹±£»¤¼Ä´æÆ÷µØÖ·0x0004   0x17ed£º122%
-  Send_power('w',0x05,0x17ed); 		//ÉèÖÃ¹ıÁ÷±£»¤¼Ä´æÆ÷µØÖ·0x0005   0x17ed£º122%
-
-  if(Send_power('r',0x07,0x0005)==0) 		//¶Á×´Ì¬Ê§°Ü
-    // ÑÏÖØ¹ÊÕÏ£º
-    //error9:¿ª¹ØµçÔ´Í¨ĞÅÏßÎ´Á¬½Ó
+	int ck=0;
+	
+  ck=ck+Send_power('w',0x0064,0x0002);		//1.00 å¯åœè®¾ç½®         0ç«¯å­-1é”®ç›˜-2é€šä¿¡
+	ck=ck+Send_power('w',0x0136,0x0000); 		//3.10 é€šä¿¡å¯åœ 				0åœæœº 1å¯åŠ¨ 2å¤ä½  
+	ck=ck+Send_power('w',0x0070,0x0002); 		//1.12ç§»é¡¹è®¾ç½®      		0å¼€ç¯-1æ’å‹-2æ’æµ-3æ’åŠŸç‡
+  ck=ck+Send_power('w',0x0072,0x0000); 		//1.14é™åˆ¶å€¼   24%      50A*0.24=12A  12*9.17=110A
+  ck=ck+Send_power('w',0x00d8,0x0003); 		//2.16 è´Ÿè½½æ–­çº¿         0ä¸æ£€æµ‹ 1æŠ¥è­¦ä¸åœæœº 2æŠ¥è­¦å¹¶åœæœº 3æŠ¥è­¦è‡ªå¤ä½
+ 
+	
+	
+  if(ck!=5) 		//è¯»çŠ¶æ€å¤±è´¥
+    // ä¸¥é‡æ•…éšœï¼š
+    //error9:å¼€å…³ç”µæºé€šä¿¡çº¿æœªè¿æ¥
     {
-      uart4_printf("¿ª¹ØµçÔ´Í¨ĞÅÒì³££¡\r\n");
+      uart4_printf("è°ƒå‹å™¨åˆå§‹åŒ–å¼‚å¸¸ï¼\r\n");
       errormessage(9);
     }
   else
     {
-      uart4_printf("¿ª¹ØµçÔ´²ÎÊı³õÊ¼»¯³É¹¦\r\n");
+      uart4_printf("è°ƒå‹å™¨åˆå§‹åŒ–æˆåŠŸ\r\n");
     }
 }
 
 
 /*-------------------------------------------------*/
-/*º¯ÊıÃû£º¿ª¹ØµçÔ´·¢ËÍÉèÖÃÖ¸Áî                         */
-/*²Î  Êı£ºoperate£ºW/R  Ğ´/¶Á                       */
-/*²Î  Êı£ºname£º¼Ä´æÆ÷µØÖ·        					 */
-/*²Î  Êı£ºw_data£ºĞ´ÈëÊı¾İÖµ       					  */
-/*·µ»ØÖµ£º0£ºÕıÈ·   ÆäËû£º´íÎó                     */
+/*å‡½æ•°åï¼šå¼€å…³ç”µæºå‘é€è®¾ç½®æŒ‡ä»¤                         */
+/*å‚  æ•°ï¼šoperateï¼šW/R  å†™/è¯»                       */
+/*å‚  æ•°ï¼šnameï¼šå¯„å­˜å™¨åœ°å€        					 */
+/*å‚  æ•°ï¼šw_dataï¼šå†™å…¥æ•°æ®å€¼       					  */
+/*è¿”å›å€¼ï¼š0ï¼šæ­£ç¡®   å…¶ä»–ï¼šé”™è¯¯                     */
 /*-------------------------------------------------*/
-int Send_power(char operate,u8 name,u16 w_data)
+int Send_power(char operate,u16 name,u16 w_data)
 {
   u8 send_data[8];
   u8 re_data[20];
@@ -75,131 +77,156 @@ int Send_power(char operate,u8 name,u16 w_data)
   u8 revlen=0;
 
 
-  int send_times=4;		//³¬Ê±¼ÆÊı
+  int send_times=4;		//è¶…æ—¶è®¡æ•°
 
-  send_data[0] = 0x01;        //Éè±¸µØÖ· 01
-  send_data[2] = 0x00; 				//¼Ä´æÆ÷µØÖ·¸ß×Ö½Ú  0x00
-  send_data[3] = name;        //¼Ä´æÆ÷µØÖ·µÍ×Ö½Ú
+  send_data[0] = 0x01;        //è®¾å¤‡åœ°å€ 01
+  
 
   if(operate=='w')
     {
-      send_data[1] = 0x06;        //Ğ´Ö¸Áî 06
-      send_data[4] = w_data>>8;         //Ğ´ÈëÊı¾İ £¨¸ß°ËÎ»£©
-      send_data[5] = w_data;            //Ğ´ÈëÊı¾İ  £¨µÍ°ËÎ»£©
+      send_data[1] = 0x06;        //å†™æŒ‡ä»¤ 06
+			send_data[2] = name>>8; 				//å¯„å­˜å™¨åœ°å€é«˜å­—èŠ‚  0x00
+			send_data[3] = name;        //å¯„å­˜å™¨åœ°å€ä½å­—èŠ‚
+      send_data[4] = w_data>>8;         //å†™å…¥æ•°æ® ï¼ˆé«˜å…«ä½ï¼‰
+      send_data[5] = w_data;            //å†™å…¥æ•°æ®  ï¼ˆä½å…«ä½ï¼‰
     }
   if(operate=='r')
     {
-      send_data[1] = 0x03;         //¶ÁÖ¸Áî 03
-      send_data[3] = 0x07;				//¶Á³ö¼Ä´æÆ÷µØÖ·ÆğÊ¼Î»  0x0007Î»
-      send_data[4] = 0x00;        //¶Á³ö¼Ä´æÆ÷¿í¶È  5Î»£¨¸ß°ËÎ»£©
-      send_data[5] = 0x05;        //¶Á³ö¼Ä´æÆ÷¿í¶È  5Î»£¨µÍ°ËÎ»£©
+      send_data[1] = 0x03;         //è¯»æŒ‡ä»¤ 03
+			send_data[2] = 0x00; 				//å¯„å­˜å™¨åœ°å€é«˜å­—èŠ‚  0x00
+      send_data[3] = 0x00;				//è¯»å‡ºå¯„å­˜å™¨åœ°å€èµ·å§‹ä½  0x0000ä½
+      send_data[4] = 0x00;        //è¯»å‡ºå¯„å­˜å™¨å®½åº¦  8ä½ï¼ˆé«˜å…«ä½ï¼‰
+      send_data[5] = 0x08;        //è¯»å‡ºå¯„å­˜å™¨å®½åº¦  8ä½ï¼ˆä½å…«ä½ï¼‰
     }
 
 
-  //crc16Ğ£Ñé
+  //crc16æ ¡éªŒ
 
   sendCRC = ModbusCRCCalc(send_data,6) ;
   send_data[6] = sendCRC>>8;
   send_data[7] = sendCRC;
 
 
-  if(send_data[1]==0x03)
-    {
-      revlen=13;
-
-    }
-  if(send_data[1]==0x06)
-    {
-      revlen=6;
-
-    }
-  //·¢ËÍÖ¸ÁîÊı¾İ£¬·¢ËÍÊ§°ÜÖØÊÔ´ÎÊı£º5
+		
+		
+		
+		
+  //å‘é€æŒ‡ä»¤æ•°æ®ï¼Œå‘é€å¤±è´¥é‡è¯•æ¬¡æ•°ï¼š5
   while(send_times)
     {
-      //Ê¹ÄÜ·¢ËÍ1Ê¹ÄÜ½ÓÊÕ0
+      //ä½¿èƒ½å‘é€1ä½¿èƒ½æ¥æ”¶0
       RS485_POWER=1;
-      //Çå¿Õusart2½ÓÊÕ»º³åÇø
+      //æ¸…ç©ºusart2æ¥æ”¶ç¼“å†²åŒº
       memset(usart2_rx_package, 0, usart2_rx_len);
-      //·¢ËÍÖ¸ÁîÊı¾İSerial_SendArray(data, ×Ö¼ÆÊıÁ¿,´®¿Ú)
+      //å‘é€æŒ‡ä»¤æ•°æ®Serial_SendArray(data, å­—è®¡æ•°é‡,ä¸²å£)
       Serial_SendArray(send_data, 9,2);
 
 //			xStartTime_power = xTaskGetTickCount();
-      //Ê¹ÄÜ·¢ËÍ1Ê¹ÄÜ½ÓÊÕ0
+      //ä½¿èƒ½å‘é€1ä½¿èƒ½æ¥æ”¶0
       RS485_POWER=0;
 
-      //100msÄÚ½ÓÊÕµ½ÕıÈ··µ»ØÖµ
+      //100mså†…æ¥æ”¶åˆ°æ­£ç¡®è¿”å›å€¼
       if (pdPASS == xQueueReceive( U2_xQueue,&re_data,100 ))
         {
 
           u16 modbusCRC,myCRC;
+					
+				
+  if(send_data[1]==0x03)
+    {
+      //revlen=13;
+			revlen=power_RX_BUF[2]+3;
 
-//					 // »ñÈ¡µ±Ç°½ÚÅÄ¼ÆÊı
-//          xEndTime_power = xTaskGetTickCount();
-//          uart4_printf("¿ª¹ØµçÔ´Êı¾İ½ÓÊÕtime=%d\r\n",xEndTime_power-xStartTime_power);
+    }
+  if(send_data[1]==0x06)
+    {
+      //revlen=6;
+			revlen=power_RX_BUF[2]*2+3;
+    }
 
 
-//			printf("U2_xQueue=");
-//			for(i=0;i<10;i++)
-//			{
-//			printf("%02x ",re_data[i]);
-//		}
-//			 printf("\r\n");
-
-
-          //¼ÆËã½ÓÊÕÊı¾İµÄĞ£Ñé
+          //è®¡ç®—æ¥æ”¶æ•°æ®çš„æ ¡éªŒ
           modbusCRC = ModbusCRCCalc(re_data,revlen) ;
 
-          //Êµ¼Ê½ÓÊÕµ½µÄĞ£Ñé
+          //å®é™…æ¥æ”¶åˆ°çš„æ ¡éªŒ
           myCRC     = power_RX_BUF[revlen]*256+power_RX_BUF[revlen+1];
 
-          //Èç¹ûCRCĞ£ÑéÍ¨¹ı
+          //å¦‚æœCRCæ ¡éªŒé€šè¿‡
           if( myCRC == modbusCRC)
             {
-              //¶ÁÖ¸ÁîµÄ·µ»ØÊı¾İrevlen==13
-              if(revlen==13)
+              //è¯»æŒ‡ä»¤
+              if(send_data[1]==0x03)
                 {
-                  v_opt				=	(power_RX_BUF[3]*256 + power_RX_BUF[4])*26.4/5000.0;
-                  i_opt				=	(power_RX_BUF[5]*256 + power_RX_BUF[6])*125.0/5000.0;
-                  v_ipt				=	(power_RX_BUF[9]*256 + power_RX_BUF[10])/10.0;
-                  power_state	=	(power_RX_BUF[11]*256 + power_RX_BUF[12]);
+                  v_opt				=	(power_RX_BUF[3]*256 + power_RX_BUF[4]);
+                  i_opt				=	(power_RX_BUF[5]*256 + power_RX_BUF[6]);
+									
+                  p_opt				=	(power_RX_BUF[7]*256 + power_RX_BUF[8]);
+									power_state	=	(power_RX_BUF[13]*256 + power_RX_BUF[14]);
+                  power_error	=	(power_RX_BUF[17]*256 + power_RX_BUF[18]);
 
                   printf("optv.txt=\"%.2fV\"\xff\xff\xff",v_opt);
                   printf("opti.txt=\"%.2fA\"\xff\xff\xff",i_opt);
 
                   switch (power_state)
                     {
+											//åœæœº
+                    case 0:                    
+                      printf("   ");
+                      break;
+                   
+										//è¿è¡Œ
                     case 1:
-                      errormessage(5);
-                      uart4_printf("µçÔ´£ºÊäÈëµçÑ¹Òì³£=%.2fV\r\n",v_ipt);
+                       printf("   ");
                       break;
-                    case 2:
-                      uart4_printf("µçÔ´£º¹Ø»ú\r\n");
-                      break;
-                    case 3:
-//                      uart4_printf("µçÔ´£ºÕı³£\r\n");
-                      break;
+										
+										//æ•…éšœ
+										case 2:
+											
+													switch (power_error)
+														{
+																											
+															case 1:
+																uart4_printf("ç”µæºï¼šæ­£å¸¸\r\n");
+																break;
+															case 2:
+																uart4_printf("ç”µæºï¼šå…³æœº\r\n");
+																break;
+																case 3:
+																uart4_printf("ç”µæºï¼šæ­£å¸¸\r\n");
+																break;
+															case 4:
+																uart4_printf("ç”µæºï¼šå…³æœº\r\n");
+																break;
+																case 5:
+																uart4_printf("ç”µæºï¼šæ­£å¸¸\r\n");
+																break;
+															case 6:
+																uart4_printf("ç”µæºï¼šå…³æœº\r\n");
+																break;
+																case 7:
+																uart4_printf("ç”µæºï¼šæ­£å¸¸\r\n");
+																break;
+															case 8:
+																uart4_printf("ç”µæºï¼šå…³æœº\r\n");
+																break;
+																case 9:
+																uart4_printf("ç”µæºï¼šæ­£å¸¸\r\n");
+																break;
+															case 10:
+																uart4_printf("ç”µæºï¼šå…³æœº\r\n");
+																break;
+																												
+															
+														}
+										break;
 
-                    case 4:
-                      uart4_printf("µçÔ´£º¹ıÎÂ\r\n");
-                      break;
-                    case 5:
-                      uart4_printf("µçÔ´£º¹ıÑ¹\r\n");
-                      break;
-                    case 6:
-                      uart4_printf("µçÔ´£º¹ıÁ÷\r\n");
-                      break;
-                    case 7:
-                      uart4_printf("µçÔ´£º¶ÌÂ·\r\n");
-
-                      Send_power('w',0x06,0x0001);		//¿ª¹Ø»ú¼Ä´æÆ÷µØÖ·0x0006         0¿ª»ú-1¹Ø»ú
-                      delay_ms(200);
-                      Send_power('w',0x06,0x0000);		//¿ª¹Ø»ú¼Ä´æÆ÷µØÖ·0x0006         0¿ª»ú-1¹Ø»ú
-                      delay_ms(2000);
-
-                      break;
+                    
                     }
+										
+					
+										
                 }
-//½ÓÊÕ³É¹¦
+//æ¥æ”¶æˆåŠŸ
               return 1;
 
             }
@@ -207,18 +234,18 @@ int Send_power(char operate,u8 name,u16 w_data)
             {
               if(revlen==13)
                 {
-                  uart4_printf("¿ª¹ØµçÔ´¶ÁÖ¸Áî CRCĞ£ÑéÊ§°Ü,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
+                  uart4_printf("å¼€å…³ç”µæºè¯»æŒ‡ä»¤ CRCæ ¡éªŒå¤±è´¥,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
                 }
               else if(revlen==6)
                 {
-                  uart4_printf("¿ª¹ØµçÔ´Ğ´Ö¸Áî CRCĞ£ÑéÊ§°Ü,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
+                  uart4_printf("å¼€å…³ç”µæºå†™æŒ‡ä»¤ CRCæ ¡éªŒå¤±è´¥,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
                 }
 
             }
         }
       else
         {
-          //uart4_printf("¿ª¹ØµçÔ´%d´Î½ÓÊÕÊı¾İ³¬Ê±£¡\r\n",5-send_times);
+          //uart4_printf("å¼€å…³ç”µæº%dæ¬¡æ¥æ”¶æ•°æ®è¶…æ—¶ï¼\r\n",5-send_times);
         }
 
       send_times=send_times-1;
@@ -226,4 +253,3 @@ int Send_power(char operate,u8 name,u16 w_data)
 
   return 0;
 }
-
