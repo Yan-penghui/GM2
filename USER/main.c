@@ -10,10 +10,10 @@
 #include "usart2.h"
 #include "usart3.h"
 #include "uart4.h"
-#include "FreeRTOS.h"	 
-#include "queue.h"		 
+#include "FreeRTOS.h"
+#include "queue.h"
 #include "Thermostat.h"
-#include "switch.h"	     
+#include "switch.h"
 #include "runcode.h"
 #include "door.h"
 #include "led.h"
@@ -74,18 +74,15 @@ void stack_task(void *pvParameters);
 int main()
 {
   NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);		//设置系统中断优先级分组4
-  delay_init();	      						 //延时函数初始化
-  Switch_Init();    							 //初始化外部控制
-	usart1dma_init(9600);					 //串口1dma功能初始化，波特率115200，与串口助手/串口屏通信
-	usart2dma_init(115200);      		 //串口2dma功能初始化，波特率115200，与开关电源通信
-	usart3dma_init(9600);          	//串口3dma功能初始化，波特率9600，与温控器通信
-	uart4dma_init(115200);           //串口4dma功能初始化，波特率115200，串口调试
+  delay_init();	      			//延时函数初始化
+  Switch_Init();    				//初始化外部控制
+  usart1dma_init(9600);			//串口1dma功能初始化，串口屏通信
+  usart2dma_init(9600);     //串口2dma功能初始化，调压器通信
+  usart3dma_init(9600);     //串口3dma功能初始化，温控器通信
+  uart4dma_init(115200);    //串口4dma功能初始化，串口调试
   led_init();
-	
 
-	
-
-	//初始化成功提示音
+  //初始化成功提示音
   BUZZER=1;
   delay_ms(50);
   BUZZER=0;
@@ -94,7 +91,7 @@ int main()
   delay_ms(50);
   BUZZER=0;
   uart4_printf("初始化成功！\n\r");
-	
+
   //创建开始任务
   xTaskCreate((TaskFunction_t	) my_start_task,						//任务函数
               (const char* 	)"my_start_task",							//任务名称
@@ -168,9 +165,9 @@ void my_start_task(void *pvParameters)
 void my_showhmi_task(void *pvParameters)
 {
   u8 LED;
-	
+
   delay_ms(1000);
-	printf("xinxi.version.txt=\"v1.0\"\xff\xff\xff");
+  printf("xinxi.version.txt=\"v1.0\"\xff\xff\xff");
   printf("xinxi.version.txt=\"v1.0\"\xff\xff\xff");
   //温控器初始化
   delay_ms(4000);
@@ -187,13 +184,11 @@ void my_showhmi_task(void *pvParameters)
 
       delay_ms(500);
       Send_Thermostat('r',0x4a,0);              	//4a-PV：测量温度
-      delay_ms(500);	
-			Send_power('r',0x07,0x0005); 								//读电源状态
-
+      delay_ms(500);
+      Send_power('r',0x0000,0x0008); 								//读调压器状态
 
     }
 }
-
 
 
 /*---------------------------------------------------------------*/
@@ -205,11 +200,11 @@ void my_showhmi_task(void *pvParameters)
 /*---------------------------------------------------------------*/
 void stack_task(void *pvParameters)
 {
-	TaskHandle_t TaskHandle;
-	TaskStatus_t TaskStatus;
-	int i = 0;
-	while(1)
-	{
+  TaskHandle_t TaskHandle;
+  TaskStatus_t TaskStatus;
+  int i = 0;
+  while(1)
+    {
 //		xEventGroupWaitBits((EventGroupHandle_t	)Event_Handle,
 //							(EventBits_t		)WIFI_CONECT|PING_MODE,
 //							(BaseType_t			)pdFALSE,
@@ -217,44 +212,44 @@ void stack_task(void *pvParameters)
 //							(TickType_t			)portMAX_DELAY);
 
 
-		for(i = 0; i < 5; i++)
-		{
-			if (i == 0)
-			{
-				TaskHandle = Instruct_Task_Handler;			//根据任务名获取任务句柄。
-			}
-			else if (i == 1)
-			{
-				TaskHandle = Runcode_Task_Handler;		//根据任务名获取任务句柄。
-			}
-			else if (i == 2)
-			{
-				TaskHandle = Showhmi_Task_Handler;	//根据任务名获取任务句柄。
-			}
-			else if (i == 3)
-			{
-				TaskHandle = LED_Task_Handler;		//根据任务名获取任务句柄。
-			}
-			else if (i == 4)
-			{
-				TaskHandle = Door_Task_Handler;		//根据任务名获取任务句柄。
-			}
+      for(i = 0; i < 5; i++)
+        {
+          if (i == 0)
+            {
+              TaskHandle = Instruct_Task_Handler;			//根据任务名获取任务句柄。
+            }
+          else if (i == 1)
+            {
+              TaskHandle = Runcode_Task_Handler;		//根据任务名获取任务句柄。
+            }
+          else if (i == 2)
+            {
+              TaskHandle = Showhmi_Task_Handler;	//根据任务名获取任务句柄。
+            }
+          else if (i == 3)
+            {
+              TaskHandle = LED_Task_Handler;		//根据任务名获取任务句柄。
+            }
+          else if (i == 4)
+            {
+              TaskHandle = Door_Task_Handler;		//根据任务名获取任务句柄。
+            }
 
-			//获取任务信息
-			vTaskGetInfo((TaskHandle_t	)TaskHandle, 	//任务句柄
-						 (TaskStatus_t*	)&TaskStatus, 	//任务信息结构体
-						 (BaseType_t	)pdTRUE,		//允许统计任务堆栈历史最小剩余大小
-						 (eTaskState	)eInvalid);		//函数自己获取任务运行壮态
-			//通过串口打印出指定任务的有关信息。
-			uart4_printf("任务名:                %s\r\n",TaskStatus.pcTaskName);
-			uart4_printf("任务编号:              %d\r\n",(int)TaskStatus.xTaskNumber);
-			uart4_printf("任务壮态:              %d\r\n",TaskStatus.eCurrentState);
-			uart4_printf("任务当前优先级:        %d\r\n",(int)TaskStatus.uxCurrentPriority);
-			uart4_printf("任务基优先级:          %d\r\n",(int)TaskStatus.uxBasePriority);
-			uart4_printf("任务堆栈基地址:        %#x\r\n",(int)TaskStatus.pxStackBase);
-			uart4_printf("任务堆栈历史剩余最小值:%d\r\n",TaskStatus.usStackHighWaterMark);
-		}
-		delay_ms(2* 1000);	    //延时10s
+          //获取任务信息
+          vTaskGetInfo((TaskHandle_t	)TaskHandle, 	//任务句柄
+                       (TaskStatus_t*	)&TaskStatus, 	//任务信息结构体
+                       (BaseType_t	)pdTRUE,		//允许统计任务堆栈历史最小剩余大小
+                       (eTaskState	)eInvalid);		//函数自己获取任务运行壮态
+          //通过串口打印出指定任务的有关信息。
+          uart4_printf("任务名:                %s\r\n",TaskStatus.pcTaskName);
+          uart4_printf("任务编号:              %d\r\n",(int)TaskStatus.xTaskNumber);
+          uart4_printf("任务壮态:              %d\r\n",TaskStatus.eCurrentState);
+          uart4_printf("任务当前优先级:        %d\r\n",(int)TaskStatus.uxCurrentPriority);
+          uart4_printf("任务基优先级:          %d\r\n",(int)TaskStatus.uxBasePriority);
+          uart4_printf("任务堆栈基地址:        %#x\r\n",(int)TaskStatus.pxStackBase);
+          uart4_printf("任务堆栈历史剩余最小值:%d\r\n",TaskStatus.usStackHighWaterMark);
+        }
+      delay_ms(2* 1000);	    //延时10s
 
-	}
+    }
 }

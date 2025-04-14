@@ -29,12 +29,9 @@ int	power_state = 0,power_error = 0;
 
 
 /*-----------------------------------------------------------*/
-/*	函数名：power_init初始化 开关电源         	             */
+/*	函数名：power_init初始化 调压器         	   		          */
 /*	参  数：																									*/
-/*	R:	0x007 v_opt                                          */
-/*			0x008 i_opt                                          */
-/*			0x00a v_ipt                                          */
-/*			0x00b power_state                                     */
+/*	                             													    */
 /*-----------------------------------------------------------*/
 void power_init(void)
 {
@@ -47,10 +44,10 @@ void power_init(void)
   ck=ck+Send_power('w',0x00d8,0x0003); 		//2.16 负载断线         0不检测 1报警不停机 2报警并停机 3报警自复位
  
 	
-	
-  if(ck!=5) 		//读状态失败
+	//初始化失败
+  if(ck!=5) 		
     // 严重故障：
-    //error9:开关电源通信线未连接
+    //error9:调压器通信线未连接
     {
       uart4_printf("调压器初始化异常！\r\n");
       errormessage(9);
@@ -75,13 +72,10 @@ int Send_power(char operate,u16 name,u16 w_data)
   u8 re_data[20];
   u16 sendCRC=0;
   u8 revlen=0;
-
-
   int send_times=4;		//超时计数
 
   send_data[0] = 0x01;        //设备地址 01
   
-
   if(operate=='w')
     {
       send_data[1] = 0x06;        //写指令 06
@@ -99,26 +93,19 @@ int Send_power(char operate,u16 name,u16 w_data)
       send_data[5] = 0x08;        //读出寄存器宽度  8位（低八位）
     }
 
-
   //crc16校验
-
   sendCRC = ModbusCRCCalc(send_data,6) ;
   send_data[6] = sendCRC>>8;
-  send_data[7] = sendCRC;
-
-
-		
-		
-		
+  send_data[7] = sendCRC;		
 		
   //发送指令数据，发送失败重试次数：5
   while(send_times)
     {
-      //使能发送1使能接收0
+//使能发送1使能接收0
       RS485_POWER=1;
-      //清空usart2接收缓冲区
+//清空usart2接收缓冲区
       memset(usart2_rx_package, 0, usart2_rx_len);
-      //发送指令数据Serial_SendArray(data, 字计数量,串口)
+//发送指令数据Serial_SendArray(data, 字计数量,串口)
       Serial_SendArray(send_data, 9,2);
 
 //			xStartTime_power = xTaskGetTickCount();
@@ -181,7 +168,7 @@ int Send_power(char operate,u16 name,u16 w_data)
 										
 										//故障
 										case 2:
-											
+											uart4_printf("调压器异常！\r\n");
 													switch (power_error)
 														{
 																											
@@ -234,18 +221,18 @@ int Send_power(char operate,u16 name,u16 w_data)
             {
               if(revlen==13)
                 {
-                  uart4_printf("开关电源读指令 CRC校验失败,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
+                  uart4_printf("调压器读指令 CRC校验失败,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
                 }
               else if(revlen==6)
                 {
-                  uart4_printf("开关电源写指令 CRC校验失败,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
+                  uart4_printf("调压器写指令 CRC校验失败,myCRC:%x,modbusCRC:%x\r\n",myCRC,modbusCRC);
                 }
 
             }
         }
       else
         {
-          //uart4_printf("开关电源%d次接收数据超时！\r\n",5-send_times);
+          //uart4_printf("调压器%d次接收数据超时！\r\n",5-send_times);
         }
 
       send_times=send_times-1;

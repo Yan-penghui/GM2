@@ -61,7 +61,7 @@ void my_instruct_task(void *pvParameters)
           if(instruct == 0x01)
             {
 
-              //创建runcode任务
+ //创建runcode任务
               if(!isRunning_Runcode)
                 {
                   xTaskCreate(my_runcode_task, "my_runcode_task", 128*2, NULL, 4, &Runcode_Task_Handler);
@@ -73,7 +73,7 @@ void my_instruct_task(void *pvParameters)
                 }
 
               isRunning_Runcode=1;
-              //程序参数整理 Program_data[17][2]:[温度][时间]
+ //程序参数整理 Program_data[17][2]:[温度][时间]
               for(i=2; i<17; i+=2)
                 {
                   TEM_data[(i-2)/2]		=(instruct_RxBuff[i+1]<<8|instruct_RxBuff[i]);          //温度：摄氏度
@@ -101,7 +101,7 @@ void my_instruct_task(void *pvParameters)
                     }
                 }
 
-//				//测试：显示构成程序的数组参数
+//测试：显示构成程序的数组参数
               for(i=0; i<17; i+=1)
                 {
 
@@ -113,7 +113,7 @@ void my_instruct_task(void *pvParameters)
 //}
                 }
 
-              //高级设置参数写入
+//高级设置参数写入
               runcode[34] = instruct_RxBuff[51]<<8|instruct_RxBuff[50] ;			//fan
               runcode[35] = instruct_RxBuff[53]<<8|instruct_RxBuff[52];				//atuodoor
               runcode[36] = instruct_RxBuff[55]<<8|instruct_RxBuff[54];				//atuodoor_downTem
@@ -121,7 +121,7 @@ void my_instruct_task(void *pvParameters)
               runcode[38] = instruct_RxBuff[59]<<8|instruct_RxBuff[58];				//rehottem
               runcode[39] = instruct_RxBuff[61]<<8|instruct_RxBuff[60] ;			//rehottime
 
-              //写队列给runcode任务
+//写队列给runcode任务
               xQueueSendToBack( runcode_xQueue,&runcode,100);	//写队列
 
             }
@@ -260,7 +260,7 @@ void my_instruct_task(void *pvParameters)
               duandianjixv=1;
             }
         }
-      //清空串口1接收缓冲区
+//清空串口1接收缓冲区
       memset(usart1_rx_package, 0, usart1_rx_len_MAX);
     }
 }
